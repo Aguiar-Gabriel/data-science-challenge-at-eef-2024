@@ -1,3 +1,1 @@
-"""Complete Data Processing pipeline for the spaceflights tutorial"""
-
-from .pipeline import create_pipeline  # NOQA
+from .pipeline import create_pipeline_sem_pca, create_pipeline_com_pca
