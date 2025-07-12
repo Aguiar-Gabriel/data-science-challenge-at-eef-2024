@@ -266,8 +266,20 @@ def _generate_statistical_features(df: pd.DataFrame) -> pd.DataFrame:
     df_copy = df_copy.reset_index() # Reset index to make hora_ref a column again
     return df_copy
 
-def _prepare_feature_matrix(df: pd.DataFrame) -> pd.DataFrame:
-    """Prepara a matriz de features para o modelo."""
+
+
+def preprocess_public_dataframe(public: pd.DataFrame, features_pca: pd.DataFrame):
+    """Replica a limpeza e engenharia de features do notebook."""
+    df = public.copy()
+    df = extract_weather_features(df)
+    df = df.drop_duplicates().reset_index(drop=True)
+
+    df = pd.merge(df, features_pca, on="flightid", how="left")
+
+    pca_cols = [col for col in df.columns if col.startswith('pca_')]
+    for col in pca_cols:
+        df[col].fillna(df[col].mean(), inplace=True)
+
     if "hora_ref" in df.columns:
         df["hora_ref"] = pd.to_datetime(df["hora_ref"], errors="coerce")
         df["hora"] = df["hora_ref"].dt.hour
@@ -278,9 +290,29 @@ def _prepare_feature_matrix(df: pd.DataFrame) -> pd.DataFrame:
         | df["troca_cabeceira_hora_anterior"].fillna(0).astype(int)
     )
 
-    df = pd.get_dummies(df, columns=["origem", "destino"], dtype=np.uint8)
+    df["rota"] = df["origem"] + "_" + df["destino"]
 
-    # Imputa valores nulos com a mediana
+    categorical_cols = [
+        "rota",
+        "origem",
+        "destino",
+        "time",
+        "wind_direction",
+        "wind_status",
+        "runway_visual_range",
+        "present_weather",
+        "metar_station",
+        "metar_report_time",
+        "metar_sky_conditions",
+        "metaf_station",
+        "metaf_forecast_time",
+        "metaf_weather",
+        "metaf_sky_conditions",
+    ]
+    
+    df = pd.get_dummies(df, columns=[col for col in categorical_cols if col in df.columns], dtype=np.uint8)
+
+    # Impute missing values with the median
     for col in df.select_dtypes(include=np.number).columns:
         if df[col].isnull().any():
             median_val = df[col].median()
@@ -296,26 +328,12 @@ def _prepare_feature_matrix(df: pd.DataFrame) -> pd.DataFrame:
     ]
     df = df.drop(columns=[c for c in to_drop if c in df.columns], errors="ignore")
 
-    return df
-
-def preprocess_public_dataframe(public: pd.DataFrame, features_pca: pd.DataFrame):
-    """Replica a limpeza e engenharia de features do notebook."""
-    df = public.copy()
-    df = extract_weather_features(df)
-    df = df.drop_duplicates().reset_index(drop=True)
-
-    df = pd.merge(df, features_pca, on="flightid", how="left")
-
-    pca_cols = [col for col in df.columns if col.startswith('pca_')]
-    for col in pca_cols:
-        df[col].fillna(df[col].mean(), inplace=True)
-
     df_train = df[df["espera"].notna()].copy()
     df_pred = df[df["espera"].isna()].copy()
 
-    X_train = _prepare_feature_matrix(df_train)
+    X_train = df_train.drop(columns=[c for c in to_drop if c in df_train.columns], errors="ignore")
     y_train = df_train["espera"].astype(int)
-    X_to_predict = _prepare_feature_matrix(df_pred)
+    X_to_predict = df_pred.drop(columns=[c for c in to_drop if c in df_pred.columns], errors="ignore")
 
     X_train, X_to_predict = X_train.align(X_to_predict, join='left', axis=1, fill_value=0)
 
@@ -335,12 +353,60 @@ def preprocess_public_dataframe_sem_pca(public: pd.DataFrame):
     df = _generate_statistical_features(df)
     df = df.drop_duplicates().reset_index(drop=True)
 
+    if "hora_ref" in df.columns:
+        df["hora_ref"] = pd.to_datetime(df["hora_ref"], errors="coerce")
+        df["hora"] = df["hora_ref"].dt.hour
+        df["dia"] = df["hora_ref"].dt.dayofyear
+
+    df["precisa_troca"] = (
+        df["prev_troca_cabeceira"].fillna(0).astype(int)
+        | df["troca_cabeceira_hora_anterior"].fillna(0).astype(int)
+    )
+
+    df["rota"] = df["origem"] + "_" + df["destino"]
+
+    categorical_cols = [
+        "rota",
+        "origem",
+        "destino",
+        "time",
+        "wind_direction",
+        "wind_status",
+        "runway_visual_range",
+        "present_weather",
+        "metar_station",
+        "metar_report_time",
+        "metar_sky_conditions",
+        "metaf_station",
+        "metaf_forecast_time",
+        "metaf_weather",
+        "metaf_sky_conditions",
+    ]
+    
+    df = pd.get_dummies(df, columns=[col for col in categorical_cols if col in df.columns], dtype=np.uint8)
+
+    # Impute missing values with the median
+    for col in df.select_dtypes(include=np.number).columns:
+        if df[col].isnull().any():
+            median_val = df[col].median()
+            df[col].fillna(median_val, inplace=True)
+
+    to_drop = [
+        "espera",
+        "flightid",
+        "url_img_satelite",
+        "metar",
+        "metaf",
+        "hora_ref",
+    ]
+    df = df.drop(columns=[c for c in to_drop if c in df.columns], errors="ignore")
+
     df_train = df[df["espera"].notna()].copy()
     df_pred = df[df["espera"].isna()].copy()
 
-    X_train = _prepare_feature_matrix(df_train)
+    X_train = df_train.drop(columns=[c for c in to_drop if c in df_train.columns], errors="ignore")
     y_train = df_train["espera"].astype(int)
-    X_to_predict = _prepare_feature_matrix(df_pred)
+    X_to_predict = df_pred.drop(columns=[c for c in to_drop if c in df_pred.columns], errors="ignore")
 
     X_train, X_to_predict = X_train.align(X_to_predict, join='left', axis=1, fill_value=0)
 
@@ -349,5 +415,86 @@ def preprocess_public_dataframe_sem_pca(public: pd.DataFrame):
     print("Pre-processamento concluido:")
     print("   – X_train shape:", X_train.shape)
     print("   – X_to_predict shape:", X_to_predict.shape)
+
+    return X_train, y_train, X_to_predict, flightid_pred
+
+def load_and_split_data(data: pd.DataFrame):
+    """Loads data, pre-processes it, and splits it into training and prediction sets."""
+    df = data.copy()
+
+    # Feature Engineering
+    if "hora_ref" in df.columns:
+        df["hora_ref"] = pd.to_datetime(df["hora_ref"], errors="coerce")
+        df["hora"] = df["hora_ref"].dt.hour
+        df["dia"] = df["hora_ref"].dt.dayofyear
+
+    df["precisa_troca"] = (
+        df["prev_troca_cabeceira"].fillna(0).astype(int)
+        | df["troca_cabeceira_hora_anterior"].fillna(0).astype(int)
+    )
+
+    # Extract weather features
+    df = extract_weather_features(df)
+
+    # Create 'rota' column
+    df["rota"] = df["origem"] + "_" + df["destino"]
+
+    # Identify all categorical columns for one-hot encoding
+    categorical_cols = [
+        "rota",
+        "origem",
+        "destino",
+        "time",
+        "wind_direction",
+        "wind_status",
+        "runway_visual_range",
+        "present_weather",
+        "metar_station",
+        "metar_report_time",
+        "metar_sky_conditions",
+        "metaf_station",
+        "metaf_forecast_time",
+        "metaf_weather",
+        "metaf_sky_conditions",
+    ]
+    
+    # One-hot encode categorical columns
+    df = pd.get_dummies(df, columns=[col for col in categorical_cols if col in df.columns], dtype=np.uint8)
+
+    # Separate features and target
+    df_train = df[df["espera"].notna()].copy()
+    df_pred = df[df["espera"].isna()].copy()
+
+    flightid_pred = pd.Series(df_pred["flightid"].reset_index(drop=True))
+
+    # Drop unnecessary columns
+    to_drop = [
+        "flightid",
+        "url_img_satelite",
+        "metar",
+        "metaf",
+        "hora_ref",
+        "espera",
+        "rota",
+    ]
+    X_train = df_train.drop(columns=[c for c in to_drop if c in df_train.columns], errors="ignore")
+    y_train = df_train["espera"].astype(int)
+    X_to_predict = df_pred.drop(columns=[c for c in to_drop if c in df_pred.columns], errors="ignore")
+
+    # Align columns
+    X_train, X_to_predict = X_train.align(X_to_predict, join='left', axis=1, fill_value=0)
+
+    # Impute missing values with the median
+    for col in X_train.select_dtypes(include=np.number).columns:
+        if X_train[col].isnull().any():
+            median_val = X_train[col].median()
+            if pd.isna(median_val):
+                median_val = 0
+            X_train.loc[:, col] = X_train.loc[:, col].fillna(median_val)
+            X_to_predict.loc[:, col] = X_to_predict.loc[:, col].fillna(median_val)
+
+    print("Pre-processamento concluido:")
+    print(f"   – X_train shape: {X_train.shape}")
+    print(f"   – X_to_predict shape: {X_to_predict.shape}")
 
     return X_train, y_train, X_to_predict, flightid_pred

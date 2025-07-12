@@ -4,11 +4,9 @@
 # Datasets de Entrada (Raw & Intermediate)
 # ==============================================================================
 
-public:
+csv_data:
   type: pandas.CSVDataset
-  filepath: data/01_raw/public.csv
-  load_args:
-    encoding: utf-8
+  filepath: data/01_raw/data.csv
 
 features_pca:
   type: pandas.ParquetDataset

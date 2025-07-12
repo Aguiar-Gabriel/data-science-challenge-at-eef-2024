@@ -1,18 +1,18 @@
 from kedro.pipeline import Pipeline, node, pipeline
-from .nodes import preprocess_public_dataframe, preprocess_public_dataframe_sem_pca
+from .nodes import preprocess_public_dataframe, load_and_split_data
 
 def create_pipeline_sem_pca(**kwargs) -> Pipeline:
     return pipeline([
         node(
-            func=preprocess_public_dataframe_sem_pca,
-            inputs="public",
+            func=load_and_split_data,
+            inputs="csv_data",
             outputs=[
                 "X_train_rf",
                 "y_train_rf",
                 "X_to_predict_rf",
                 "flightid_pred",
             ],
-            name="preprocess_public_dataframe_node",
+            name="load_and_split_data_node",
         ),
     ])
 
